@@ -61,8 +61,14 @@ class TestGetRunner:
             runner = get_runner(timeout_minutes=30)
         assert runner.timeout_seconds == 30 * 60
 
-    def test_unknown_backend_raises_configuration_error(self):
+    def test_opencode_backend_returns_opencode_runner(self):
+        from claudecode.runners.opencode_runner import OpenCodeRunner
         with patch.dict(os.environ, {'SECURITY_REVIEW_BACKEND': 'opencode'}):
+            runner = get_runner()
+        assert isinstance(runner, OpenCodeRunner)
+
+    def test_unknown_backend_raises_configuration_error(self):
+        with patch.dict(os.environ, {'SECURITY_REVIEW_BACKEND': 'bogus-engine'}):
             with pytest.raises(ConfigurationError):
                 get_runner()
 

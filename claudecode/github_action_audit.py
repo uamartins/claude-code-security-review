@@ -377,8 +377,13 @@ def get_runner(timeout_minutes: Optional[int] = None) -> SecurityAuditRunner:
         # ``SimpleClaudeRunner`` continue to intercept instantiation.
         return SimpleClaudeRunner(timeout_minutes)
 
+    if backend == 'opencode':
+        # Imported lazily so the Claude path has no dependency on this module.
+        from claudecode.runners.opencode_runner import OpenCodeRunner
+        return OpenCodeRunner(timeout_minutes)
+
     raise ConfigurationError(
-        f"Unsupported SECURITY_REVIEW_BACKEND '{backend}'. Supported backends: 'claude'."
+        f"Unsupported SECURITY_REVIEW_BACKEND '{backend}'. Supported backends: 'claude', 'opencode'."
     )
 
 
