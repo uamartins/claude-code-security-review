@@ -10,6 +10,7 @@ An AI-powered security review GitHub Action using Claude to analyze code changes
 - **Contextual Understanding**: Goes beyond pattern matching to understand code semantics
 - **Language Agnostic**: Works with any programming language
 - **False Positive Filtering**: Advanced filtering to reduce noise and focus on real vulnerabilities
+- **Pluggable Backends**: Run the audit with the native Claude Code CLI (default) or, via the provider-agnostic [OpenCode](https://opencode.ai) CLI, with other LLM providers (OpenAI, DeepSeek, Moonshot/Kimi, MiniMax, and more). See [Choosing a Backend](#choosing-a-backend).
 
 ## Quick Start
 
@@ -50,12 +51,16 @@ This action is not hardened against prompt injection attacks and should only be 
 
 | Input | Description | Default | Required |
 |-------|-------------|---------|----------|
-| `claude-api-key` | Anthropic Claude API key for security analysis. <br>*Note*: This API key needs to be enabled for both the Claude API and Claude Code usage. | None | Yes |
+| `claude-api-key` | Anthropic Claude API key for security analysis. <br>*Note*: This API key needs to be enabled for both the Claude API and Claude Code usage. Required for the default `claude` backend. | None | Yes (for `claude` backend) |
 | `comment-pr` | Whether to comment on PRs with findings | `true` | No |
 | `upload-results` | Whether to upload results as artifacts | `true` | No |
 | `exclude-directories` | Comma-separated list of directories to exclude from scanning | None | No |
 | `claude-model` | Claude [model name](https://docs.anthropic.com/en/docs/about-claude/models/overview#model-names) to use. Defaults to Opus 4.1. | `claude-opus-4-1-20250805` | No |
 | `claudecode-timeout` | Timeout for ClaudeCode analysis in minutes | `20` | No |
+| `backend` | Security audit engine: `claude` (Claude Code CLI) or `opencode` (provider-agnostic [OpenCode](https://opencode.ai) CLI). See [Choosing a Backend](#choosing-a-backend). | `claude` | No |
+| `opencode-version` | OpenCode CLI version to install from npm (`opencode-ai`). Used only when `backend=opencode`. | `1.17.8` | No |
+| `opencode-model` | OpenCode model in `provider/model` format (e.g. `openai/gpt-4o`, `deepseek/deepseek-chat`, `anthropic/claude-sonnet-4-20250514`). Used only when `backend=opencode`. | None | No |
+| `opencode-api-key` | API key for the provider referenced in `opencode-model`. Used only when `backend=opencode`. | None | Yes (for `opencode` backend) |
 | `run-every-commit` | Run ClaudeCode on every commit (skips cache check). Warning: May increase false positives on PRs with many commits. | `false` | No |
 | `false-positive-filtering-instructions` | Path to custom false positive filtering instructions text file | None | No |
 | `custom-security-scan-instructions` | Path to custom security scan instructions text file to append to audit prompt | None | No |
@@ -67,13 +72,47 @@ This action is not hardened against prompt injection attacks and should only be 
 | `findings-count` | Total number of security findings |
 | `results-file` | Path to the results JSON file |
 
+### Choosing a Backend
+
+The agentic security audit can be powered by one of two engines, selected with the `backend` input:
+
+- **`claude`** (default): uses the native [Claude Code](https://docs.anthropic.com/en/docs/claude-code/overview) CLI. This is the original, fully supported path — behavior is unchanged if you don't set `backend`.
+- **`opencode`**: uses the provider-agnostic [OpenCode](https://opencode.ai) CLI, which lets you run the audit with non-Anthropic models (OpenAI, DeepSeek, Moonshot/Kimi, MiniMax, and others supported by OpenCode).
+
+The default `claude` backend requires no changes:
+
+```yaml
+- uses: anthropics/claude-code-security-review@main
+  with:
+    claude-api-key: ${{ secrets.CLAUDE_API_KEY }}
+```
+
+To run the audit with OpenCode and a different provider, set `backend: opencode`, pick a model in `provider/model` format, and pass the matching provider API key:
+
+```yaml
+- uses: anthropics/claude-code-security-review@main
+  with:
+    backend: opencode
+    opencode-model: deepseek/deepseek-chat   # or openai/gpt-4o, moonshotai/kimi-k2, etc.
+    opencode-api-key: ${{ secrets.DEEPSEEK_API_KEY }}
+```
+
+The action installs the pinned OpenCode CLI from npm and generates an `opencode.json` that injects `opencode-api-key` into the provider referenced by `opencode-model` (via OpenCode's `{env:...}` interpolation).
+
+> **Note on false-positive filtering:** the [false-positive filtering](#false-positive-filtering) step still calls the Anthropic API. With the `opencode` backend, if no `claude-api-key` is provided, filtering automatically falls back to the built-in hard-exclusion rules only. Provide `claude-api-key` alongside the OpenCode inputs to keep AI-assisted filtering enabled.
+
+> **Note on model quality:** different models vary in audit quality and JSON-formatting reliability. The exclusion rules and prompts were tuned against Claude; when switching models, validate results using the [evaluation framework](claudecode/evals/README.md).
+
 ## How It Works
 
 ### Architecture
 
 ```
 claudecode/
-├── github_action_audit.py  # Main audit script for GitHub Actions
+├── github_action_audit.py  # Main audit script + runner factory (get_runner)
+├── runners/                # Pluggable audit engines
+│   ├── base.py             #   SecurityAuditRunner interface
+│   └── opencode_runner.py  #   OpenCode CLI backend
 ├── prompts.py              # Security audit prompt templates
 ├── findings_filter.py      # False positive filtering logic
 ├── claude_api_client.py    # Claude API client for false positive filtering
@@ -82,6 +121,8 @@ claudecode/
 ├── test_*.py               # Test suites
 └── evals/                  # Eval tooling to test CC on arbitrary PRs
 ```
+
+The audit engine is selected at runtime by `get_runner()` based on the `backend` input (`SECURITY_REVIEW_BACKEND` env var). The Claude Code runner lives in `github_action_audit.py`; additional backends implement the `SecurityAuditRunner` interface in `runners/`.
 
 ### Workflow
 
