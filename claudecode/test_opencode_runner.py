@@ -98,11 +98,12 @@ class TestErrorEventHandling:
         },
     )
 
-    def test_scan_stream_extracts_error_message(self):
+    def test_scan_stream_extracts_error_message_and_status(self):
         runner = OpenCodeRunner()
-        text, error = runner._scan_stream(self.ERROR_STREAM)
+        text, error, status = runner._scan_stream(self.ERROR_STREAM)
         assert text == ""
         assert "Authentication Fails" in error
+        assert status == 401
 
     def test_run_surfaces_stream_error(self, tmp_path):
         runner = OpenCodeRunner()
@@ -112,6 +113,25 @@ class TestErrorEventHandling:
         assert ok is False
         assert "Authentication Fails" in err
 
+    def test_auth_error_is_not_retried(self, tmp_path):
+        """A 401 (invalid key) should fail immediately without retrying."""
+        runner = OpenCodeRunner()
+        m = MagicMock(returncode=0, stdout=self.ERROR_STREAM, stderr="")
+        with patch('subprocess.run', return_value=m) as mock_run, patch('time.sleep'):
+            ok, err, results = runner.run_security_audit(tmp_path, "prompt")
+        assert ok is False
+        assert mock_run.call_count == 1
+
+    def test_rate_limit_error_is_retried(self, tmp_path):
+        """A 429 is transient and should be retried up to the limit."""
+        runner = OpenCodeRunner()
+        stream = _jsonl({"type": "error", "error": {"data": {"message": "rate limited", "statusCode": 429}}})
+        m = MagicMock(returncode=0, stdout=stream, stderr="")
+        with patch('subprocess.run', return_value=m) as mock_run, patch('time.sleep'):
+            ok, err, results = runner.run_security_audit(tmp_path, "prompt")
+        assert ok is False
+        assert mock_run.call_count == 3
+
     def test_stream_error_context_overflow_maps_to_sentinel(self, tmp_path):
         runner = OpenCodeRunner()
         stream = _jsonl({"type": "error", "error": {"data": {"message": "maximum context length exceeded"}}})
@@ -120,6 +140,13 @@ class TestErrorEventHandling:
             ok, err, results = runner.run_security_audit(tmp_path, "prompt")
         assert ok is False
         assert err == "PROMPT_TOO_LONG"
+
+    @pytest.mark.parametrize("status,retryable", [
+        (None, True), (429, True), (500, True), (503, True),
+        (400, False), (401, False), (403, False), (404, False),
+    ])
+    def test_is_retryable_status(self, status, retryable):
+        assert OpenCodeRunner._is_retryable_status(status) is retryable
 
 
 class TestPromptTooLongDetection:

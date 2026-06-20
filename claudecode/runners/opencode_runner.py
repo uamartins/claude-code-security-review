@@ -119,13 +119,17 @@ class OpenCodeRunner(SecurityAuditRunner):
                     continue  # Retry
 
                 # Reconstruct the assistant's response from the JSONL event stream.
-                response_text, stream_error = self._scan_stream(result.stdout)
+                response_text, stream_error, status_code = self._scan_stream(result.stdout)
 
                 # A streamed error (e.g. provider auth failure, context overflow)
                 # is reported even though the process exited 0.
                 if stream_error:
                     if self._looks_like_prompt_too_long(stream_error):
                         return False, "PROMPT_TOO_LONG", {}
+                    # Don't waste retries on non-transient client errors such as
+                    # 401/403/404 (e.g. invalid API key); only retry transient ones.
+                    if not self._is_retryable_status(status_code):
+                        return False, f"OpenCode reported an error: {stream_error}", {}
                     if attempt == NUM_RETRIES - 1:
                         return False, f"OpenCode reported an error: {stream_error}", {}
                     time.sleep(5 * attempt)
@@ -149,7 +153,7 @@ class OpenCodeRunner(SecurityAuditRunner):
         except Exception as e:
             return False, f"OpenCode execution error: {str(e)}", {}
 
-    def _scan_stream(self, stdout: str) -> Tuple[str, str]:
+    def _scan_stream(self, stdout: str) -> Tuple[str, str, Optional[int]]:
         """Parse the OpenCode JSONL event stream.
 
         Each line is a JSON event. Assistant text lives in events of
@@ -157,11 +161,13 @@ class OpenCodeRunner(SecurityAuditRunner):
         ``type == "error"``. Non-JSON lines and other event types are ignored.
 
         Returns:
-            Tuple of (assistant_text, error_message). ``error_message`` is the
-            first error encountered, or "" when none.
+            Tuple of (assistant_text, error_message, status_code). The error
+            fields describe the first error encountered; ``error_message`` is ""
+            and ``status_code`` is None when no error occurred.
         """
         chunks: List[str] = []
         error_message = ""
+        status_code: Optional[int] = None
         for line in stdout.splitlines():
             line = line.strip()
             if not line:
@@ -181,7 +187,8 @@ class OpenCodeRunner(SecurityAuditRunner):
                         chunks.append(text)
             elif event_type == 'error' and not error_message:
                 error_message = self._extract_error_message(event)
-        return ''.join(chunks), error_message
+                status_code = self._extract_error_status(event)
+        return ''.join(chunks), error_message, status_code
 
     @staticmethod
     def _extract_error_message(event: Dict[str, Any]) -> str:
@@ -198,6 +205,34 @@ class OpenCodeRunner(SecurityAuditRunner):
         if isinstance(error, str):
             return error
         return "unknown OpenCode error"
+
+    @staticmethod
+    def _extract_error_status(event: Dict[str, Any]) -> Optional[int]:
+        """Pull the HTTP status code out of an OpenCode error event, if present."""
+        error = event.get('error')
+        if isinstance(error, dict):
+            data = error.get('data')
+            if isinstance(data, dict) and isinstance(data.get('statusCode'), int):
+                return data['statusCode']
+            if isinstance(error.get('statusCode'), int):
+                return error['statusCode']
+        return None
+
+    @staticmethod
+    def _is_retryable_status(status_code: Optional[int]) -> bool:
+        """Whether an error with this HTTP status is worth retrying.
+
+        Unknown statuses are retried; rate limiting (429) is retried; other 4xx
+        client errors (e.g. 401/403/404 invalid key, bad request) are not, since
+        retrying won't change the outcome.
+        """
+        if status_code is None:
+            return True
+        if status_code == 429:
+            return True
+        if 400 <= status_code < 500:
+            return False
+        return True
 
     def _collect_assistant_text(self, stdout: str) -> str:
         """Backwards-compatible helper returning only the assistant text."""
