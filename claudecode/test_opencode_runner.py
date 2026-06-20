@@ -85,6 +85,43 @@ class TestJsonlParsing:
         assert result['analysis_summary']['review_completed'] is False
 
 
+class TestErrorEventHandling:
+    # Mirrors a real OpenCode auth-failure event observed from the CLI.
+    ERROR_STREAM = _jsonl(
+        {"type": "step_start", "part": {}},
+        {
+            "type": "error",
+            "error": {
+                "name": "APIError",
+                "data": {"message": "Authentication Fails, Your api key is invalid", "statusCode": 401},
+            },
+        },
+    )
+
+    def test_scan_stream_extracts_error_message(self):
+        runner = OpenCodeRunner()
+        text, error = runner._scan_stream(self.ERROR_STREAM)
+        assert text == ""
+        assert "Authentication Fails" in error
+
+    def test_run_surfaces_stream_error(self, tmp_path):
+        runner = OpenCodeRunner()
+        m = MagicMock(returncode=0, stdout=self.ERROR_STREAM, stderr="")
+        with patch('subprocess.run', return_value=m), patch('time.sleep'):
+            ok, err, results = runner.run_security_audit(tmp_path, "prompt")
+        assert ok is False
+        assert "Authentication Fails" in err
+
+    def test_stream_error_context_overflow_maps_to_sentinel(self, tmp_path):
+        runner = OpenCodeRunner()
+        stream = _jsonl({"type": "error", "error": {"data": {"message": "maximum context length exceeded"}}})
+        m = MagicMock(returncode=0, stdout=stream, stderr="")
+        with patch('subprocess.run', return_value=m), patch('time.sleep'):
+            ok, err, results = runner.run_security_audit(tmp_path, "prompt")
+        assert ok is False
+        assert err == "PROMPT_TOO_LONG"
+
+
 class TestPromptTooLongDetection:
     @pytest.mark.parametrize("text", [
         "Error: prompt is too long",

@@ -119,7 +119,17 @@ class OpenCodeRunner(SecurityAuditRunner):
                     continue  # Retry
 
                 # Reconstruct the assistant's response from the JSONL event stream.
-                response_text = self._collect_assistant_text(result.stdout)
+                response_text, stream_error = self._scan_stream(result.stdout)
+
+                # A streamed error (e.g. provider auth failure, context overflow)
+                # is reported even though the process exited 0.
+                if stream_error:
+                    if self._looks_like_prompt_too_long(stream_error):
+                        return False, "PROMPT_TOO_LONG", {}
+                    if attempt == NUM_RETRIES - 1:
+                        return False, f"OpenCode reported an error: {stream_error}", {}
+                    time.sleep(5 * attempt)
+                    continue  # Retry
 
                 if self._looks_like_prompt_too_long(response_text):
                     return False, "PROMPT_TOO_LONG", {}
@@ -139,14 +149,19 @@ class OpenCodeRunner(SecurityAuditRunner):
         except Exception as e:
             return False, f"OpenCode execution error: {str(e)}", {}
 
-    def _collect_assistant_text(self, stdout: str) -> str:
-        """Concatenate ``text`` parts from the OpenCode JSONL event stream.
+    def _scan_stream(self, stdout: str) -> Tuple[str, str]:
+        """Parse the OpenCode JSONL event stream.
 
-        Each line is a JSON event. Text output lives in events of
-        ``type == "text"`` under ``part.text``. Non-JSON lines and other event
-        types are ignored.
+        Each line is a JSON event. Assistant text lives in events of
+        ``type == "text"`` under ``part.text``; failures arrive as events of
+        ``type == "error"``. Non-JSON lines and other event types are ignored.
+
+        Returns:
+            Tuple of (assistant_text, error_message). ``error_message`` is the
+            first error encountered, or "" when none.
         """
         chunks: List[str] = []
+        error_message = ""
         for line in stdout.splitlines():
             line = line.strip()
             if not line:
@@ -157,13 +172,36 @@ class OpenCodeRunner(SecurityAuditRunner):
                 continue
             if not isinstance(event, dict):
                 continue
-            if event.get('type') == 'text':
+            event_type = event.get('type')
+            if event_type == 'text':
                 part = event.get('part', {})
                 if isinstance(part, dict):
                     text = part.get('text')
                     if isinstance(text, str):
                         chunks.append(text)
-        return ''.join(chunks)
+            elif event_type == 'error' and not error_message:
+                error_message = self._extract_error_message(event)
+        return ''.join(chunks), error_message
+
+    @staticmethod
+    def _extract_error_message(event: Dict[str, Any]) -> str:
+        """Pull a human-readable message out of an OpenCode error event."""
+        error = event.get('error')
+        if isinstance(error, dict):
+            data = error.get('data')
+            if isinstance(data, dict) and isinstance(data.get('message'), str):
+                return data['message']
+            if isinstance(error.get('message'), str):
+                return error['message']
+            if isinstance(error.get('name'), str):
+                return error['name']
+        if isinstance(error, str):
+            return error
+        return "unknown OpenCode error"
+
+    def _collect_assistant_text(self, stdout: str) -> str:
+        """Backwards-compatible helper returning only the assistant text."""
+        return self._scan_stream(stdout)[0]
 
     def _extract_security_findings(self, response_text: str) -> Dict[str, Any]:
         """Extract the findings JSON from the assistant's response text."""

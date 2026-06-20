@@ -608,7 +608,7 @@ def main():
             sys.exit(EXIT_CONFIGURATION_ERROR)
         
         # Validate Claude Code is available
-        claude_ok, claude_error = claude_runner.validate_claude_available()
+        claude_ok, claude_error = claude_runner.validate_available()
         if not claude_ok:
             print(json.dumps({'error': f'Claude Code not available: {claude_error}'}))
             sys.exit(EXIT_GENERAL_ERROR)
