@@ -95,7 +95,7 @@ class TestHelperFunctions:
         with pytest.raises(ConfigurationError) as exc_info:
             initialize_clients()
         
-        assert "Failed to initialize Claude runner" in str(exc_info.value)
+        assert "Failed to initialize audit runner" in str(exc_info.value)
         assert "Claude init error" in str(exc_info.value)
     
     @patch('claudecode.github_action_audit.FindingsFilter')

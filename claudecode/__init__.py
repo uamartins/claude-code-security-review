@@ -11,12 +11,18 @@ __author__ = "Anthropic Security Team"
 # Import main components for easier access
 from claudecode.github_action_audit import (
     GitHubActionClient,
+    ClaudeCodeRunner,
     SimpleClaudeRunner,
+    get_runner,
     main
 )
+from claudecode.runners.base import SecurityAuditRunner
 
 __all__ = [
     "GitHubActionClient",
+    "SecurityAuditRunner",
+    "ClaudeCodeRunner",
     "SimpleClaudeRunner",
+    "get_runner",
     "main"
 ]

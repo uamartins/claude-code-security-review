@@ -94,7 +94,7 @@ class TestMainFunction:
             
             captured = capsys.readouterr()
             output = json.loads(captured.out)
-            assert 'Failed to initialize Claude runner' in output['error']
+            assert 'Failed to initialize audit runner' in output['error']
     
     @patch('claudecode.github_action_audit.FindingsFilter')
     @patch('claudecode.github_action_audit.SimpleClaudeRunner')
@@ -107,7 +107,7 @@ class TestMainFunction:
         mock_client_class.return_value = mock_client
         
         mock_runner = Mock()
-        mock_runner.validate_claude_available.return_value = (False, "Not available")
+        mock_runner.validate_available.return_value = (False, "Not available")
         mock_runner_class.return_value = mock_runner
         
         # Test with full filtering enabled
@@ -157,7 +157,7 @@ class TestMainFunction:
         mock_client_class.return_value = mock_client
         
         mock_runner = Mock()
-        mock_runner.validate_claude_available.return_value = (False, "Claude not installed")
+        mock_runner.validate_available.return_value = (False, "Claude not installed")
         mock_runner_class.return_value = mock_runner
         
         mock_filter_class.return_value = Mock()
@@ -189,7 +189,7 @@ class TestMainFunction:
         mock_client_class.return_value = mock_client
         
         mock_runner = Mock()
-        mock_runner.validate_claude_available.return_value = (True, "")
+        mock_runner.validate_available.return_value = (True, "")
         mock_runner_class.return_value = mock_runner
         
         mock_filter_class.return_value = Mock()
@@ -229,7 +229,7 @@ class TestMainFunction:
         mock_client_class.return_value = mock_client
         
         mock_runner = Mock()
-        mock_runner.validate_claude_available.return_value = (True, "")
+        mock_runner.validate_available.return_value = (True, "")
         mock_runner.run_security_audit.return_value = (
             True, 
             "",
@@ -314,7 +314,7 @@ class TestMainFunction:
         ]
         
         mock_runner = Mock()
-        mock_runner.validate_claude_available.return_value = (True, "")
+        mock_runner.validate_available.return_value = (True, "")
         mock_runner.run_security_audit.return_value = (
             True,
             "",
@@ -390,7 +390,7 @@ class TestMainFunction:
         findings = [{'file': 'test.py', 'line': 10, 'severity': 'HIGH', 'description': 'Issue'}]
         
         mock_runner = Mock()
-        mock_runner.validate_claude_available.return_value = (True, "")
+        mock_runner.validate_available.return_value = (True, "")
         mock_runner.run_security_audit.return_value = (True, "", {'findings': findings})
         mock_runner_class.return_value = mock_runner
         
@@ -451,7 +451,7 @@ class TestMainFunction:
         ]
         
         mock_runner = Mock()
-        mock_runner.validate_claude_available.return_value = (True, "")
+        mock_runner.validate_available.return_value = (True, "")
         mock_runner.run_security_audit.return_value = (True, "", {'findings': findings})
         mock_runner_class.return_value = mock_runner
         
@@ -530,7 +530,7 @@ class TestAuditFailureModes:
         mock_client_class.return_value = mock_client
         
         mock_runner = Mock()
-        mock_runner.validate_claude_available.return_value = (True, "")
+        mock_runner.validate_available.return_value = (True, "")
         mock_runner.run_security_audit.return_value = (
             False,
             "Claude execution failed",
