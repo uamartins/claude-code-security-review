@@ -10,6 +10,7 @@ from claudecode.github_action_audit import (
     ClaudeCodeRunner,
     ConfigurationError,
     SimpleClaudeRunner,
+    _get_timeout_minutes,
     get_runner,
 )
 from claudecode.runners.base import SecurityAuditRunner
@@ -78,3 +79,31 @@ class TestGetRunner:
             with patch.dict(os.environ, {'SECURITY_REVIEW_BACKEND': 'claude'}):
                 get_runner()
             mock_runner.assert_called_once()
+
+
+class TestTimeoutMinutes:
+    """Tests for CLAUDECODE_TIMEOUT parsing."""
+
+    def test_unset_returns_none(self):
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop('CLAUDECODE_TIMEOUT', None)
+            assert _get_timeout_minutes() is None
+
+    def test_valid_value(self):
+        with patch.dict(os.environ, {'CLAUDECODE_TIMEOUT': '15'}):
+            assert _get_timeout_minutes() == 15
+
+    def test_invalid_value_returns_none(self):
+        with patch.dict(os.environ, {'CLAUDECODE_TIMEOUT': 'abc'}):
+            assert _get_timeout_minutes() is None
+
+    def test_non_positive_returns_none(self):
+        with patch.dict(os.environ, {'CLAUDECODE_TIMEOUT': '0'}):
+            assert _get_timeout_minutes() is None
+
+    def test_timeout_propagates_to_runner(self):
+        with patch.dict(os.environ, {'SECURITY_REVIEW_BACKEND': 'claude', 'CLAUDECODE_TIMEOUT': '5'}):
+            from claudecode.github_action_audit import initialize_clients
+            with patch.object(github_action_audit, 'GitHubActionClient'):
+                _, runner = initialize_clients()
+        assert runner.timeout_seconds == 5 * 60

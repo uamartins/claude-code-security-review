@@ -428,13 +428,29 @@ def initialize_clients() -> Tuple[GitHubActionClient, SecurityAuditRunner]:
         raise ConfigurationError(f'Failed to initialize GitHub client: {str(e)}')
 
     try:
-        claude_runner = get_runner()
+        claude_runner = get_runner(timeout_minutes=_get_timeout_minutes())
     except ConfigurationError:
         raise
     except Exception as e:
         raise ConfigurationError(f'Failed to initialize Claude runner: {str(e)}')
 
     return github_client, claude_runner
+
+
+def _get_timeout_minutes() -> Optional[int]:
+    """Read the runner timeout (in minutes) from the CLAUDECODE_TIMEOUT env var.
+
+    Returns None when unset or invalid, so the runner falls back to its default.
+    """
+    raw = os.environ.get('CLAUDECODE_TIMEOUT', '').strip()
+    if not raw:
+        return None
+    try:
+        minutes = int(raw)
+    except ValueError:
+        logger.warning(f"Invalid CLAUDECODE_TIMEOUT value '{raw}'; using runner default")
+        return None
+    return minutes if minutes > 0 else None
 
 
 def initialize_findings_filter(custom_filtering_instructions: Optional[str] = None) -> FindingsFilter:

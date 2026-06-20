@@ -209,6 +209,9 @@ runs:
               echo "Generated opencode.json for provider: $PROVIDER"
             else
               echo "::warning::opencode-model is empty or not in provider/model format; relying on OpenCode's default provider resolution"
+              # Write a minimal valid config so OPENCODE_CONFIG always points to
+              # an existing file.
+              echo '{}' > "$ACTION_PATH/opencode.json"
             fi
           else
             npm install -g @anthropic-ai/claude-code
