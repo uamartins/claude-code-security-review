@@ -234,10 +234,6 @@ class OpenCodeRunner(SecurityAuditRunner):
             return False
         return True
 
-    def _collect_assistant_text(self, stdout: str) -> str:
-        """Backwards-compatible helper returning only the assistant text."""
-        return self._scan_stream(stdout)[0]
-
     def _extract_security_findings(self, response_text: str) -> Dict[str, Any]:
         """Extract the findings JSON from the assistant's response text."""
         success, result_json = parse_json_with_fallbacks(response_text, "OpenCode output")

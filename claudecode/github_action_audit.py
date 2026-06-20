@@ -432,7 +432,7 @@ def initialize_clients() -> Tuple[GitHubActionClient, SecurityAuditRunner]:
     except ConfigurationError:
         raise
     except Exception as e:
-        raise ConfigurationError(f'Failed to initialize Claude runner: {str(e)}')
+        raise ConfigurationError(f'Failed to initialize audit runner: {str(e)}')
 
     return github_client, claude_runner
 

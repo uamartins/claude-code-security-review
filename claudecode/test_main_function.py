@@ -94,7 +94,7 @@ class TestMainFunction:
             
             captured = capsys.readouterr()
             output = json.loads(captured.out)
-            assert 'Failed to initialize Claude runner' in output['error']
+            assert 'Failed to initialize audit runner' in output['error']
     
     @patch('claudecode.github_action_audit.FindingsFilter')
     @patch('claudecode.github_action_audit.SimpleClaudeRunner')

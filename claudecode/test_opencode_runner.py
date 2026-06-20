@@ -53,7 +53,7 @@ class TestOpenCodeRunnerBasics:
 
 
 class TestJsonlParsing:
-    def test_collect_assistant_text_concatenates_text_parts(self):
+    def test_scan_stream_concatenates_text_parts(self):
         runner = OpenCodeRunner()
         stream = _jsonl(
             {"type": "step_start", "part": {}},
@@ -61,9 +61,12 @@ class TestJsonlParsing:
             _text_event("world"),
             {"type": "step_finish", "part": {}},
         )
-        assert runner._collect_assistant_text(stream) == "Hello world"
+        text, error, status = runner._scan_stream(stream)
+        assert text == "Hello world"
+        assert error == ""
+        assert status is None
 
-    def test_collect_ignores_non_json_and_other_events(self):
+    def test_scan_stream_ignores_non_json_and_other_events(self):
         runner = OpenCodeRunner()
         stream = (
             "not json at all\n"
@@ -71,7 +74,7 @@ class TestJsonlParsing:
             + json.dumps(_text_event("kept")) + "\n"
             + "\n"
         )
-        assert runner._collect_assistant_text(stream) == "kept"
+        assert runner._scan_stream(stream)[0] == "kept"
 
     def test_extract_findings_from_text(self):
         runner = OpenCodeRunner()
