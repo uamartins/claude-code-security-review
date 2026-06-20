@@ -25,6 +25,7 @@ from claudecode.constants import (
     EXIT_GENERAL_ERROR,
     SUBPROCESS_TIMEOUT
 )
+from claudecode.runners.base import SecurityAuditRunner
 from claudecode.logger import get_logger
 
 logger = get_logger(__name__)
@@ -186,9 +187,9 @@ class GitHubActionClient:
         return ''.join(filtered_sections)
 
 
-class SimpleClaudeRunner:
-    """Simplified Claude Code runner for GitHub Actions."""
-    
+class ClaudeCodeRunner(SecurityAuditRunner):
+    """Security audit runner backed by the native Claude Code CLI."""
+
     def __init__(self, timeout_minutes: Optional[int] = None):
         """Initialize Claude runner.
         
@@ -312,7 +313,7 @@ class SimpleClaudeRunner:
         }
     
     
-    def validate_claude_available(self) -> Tuple[bool, str]:
+    def validate_available(self) -> Tuple[bool, str]:
         """Validate that Claude Code is available."""
         try:
             result = subprocess.run(
@@ -343,7 +344,42 @@ class SimpleClaudeRunner:
         except Exception as e:
             return False, f"Failed to check Claude Code: {str(e)}"
 
+    def validate_claude_available(self) -> Tuple[bool, str]:
+        """Backwards-compatible alias for :meth:`validate_available`."""
+        return self.validate_available()
 
+
+# Backwards-compatible alias. The runner was historically named
+# ``SimpleClaudeRunner``; existing imports and test patch targets continue to
+# work while the codebase migrates to the ``ClaudeCodeRunner`` name.
+SimpleClaudeRunner = ClaudeCodeRunner
+
+
+def get_runner(timeout_minutes: Optional[int] = None) -> SecurityAuditRunner:
+    """Build the security audit runner selected via configuration.
+
+    The backend is chosen with the ``SECURITY_REVIEW_BACKEND`` environment
+    variable and defaults to the native Claude Code engine, preserving the
+    historical behavior.
+
+    Args:
+        timeout_minutes: Optional runner timeout in minutes.
+
+    Returns:
+        A concrete :class:`SecurityAuditRunner` instance.
+
+    Raises:
+        ConfigurationError: If an unsupported backend is requested.
+    """
+    backend = os.environ.get('SECURITY_REVIEW_BACKEND', 'claude').strip().lower()
+    if backend in ('', 'claude'):
+        # Reference the module-level name so test patches of
+        # ``SimpleClaudeRunner`` continue to intercept instantiation.
+        return SimpleClaudeRunner(timeout_minutes)
+
+    raise ConfigurationError(
+        f"Unsupported SECURITY_REVIEW_BACKEND '{backend}'. Supported backends: 'claude'."
+    )
 
 
 def get_environment_config() -> Tuple[str, int]:
@@ -372,12 +408,12 @@ def get_environment_config() -> Tuple[str, int]:
     return repo_name, pr_number
 
 
-def initialize_clients() -> Tuple[GitHubActionClient, SimpleClaudeRunner]:
-    """Initialize GitHub and Claude clients.
-    
+def initialize_clients() -> Tuple[GitHubActionClient, SecurityAuditRunner]:
+    """Initialize GitHub client and the configured security audit runner.
+
     Returns:
-        Tuple of (github_client, claude_runner)
-        
+        Tuple of (github_client, runner)
+
     Raises:
         ConfigurationError: If client initialization fails
     """
@@ -385,12 +421,14 @@ def initialize_clients() -> Tuple[GitHubActionClient, SimpleClaudeRunner]:
         github_client = GitHubActionClient()
     except Exception as e:
         raise ConfigurationError(f'Failed to initialize GitHub client: {str(e)}')
-    
+
     try:
-        claude_runner = SimpleClaudeRunner()
+        claude_runner = get_runner()
+    except ConfigurationError:
+        raise
     except Exception as e:
         raise ConfigurationError(f'Failed to initialize Claude runner: {str(e)}')
-        
+
     return github_client, claude_runner
 
 
@@ -430,7 +468,7 @@ def initialize_findings_filter(custom_filtering_instructions: Optional[str] = No
 
 
 
-def run_security_audit(claude_runner: SimpleClaudeRunner, prompt: str) -> Dict[str, Any]:
+def run_security_audit(claude_runner: SecurityAuditRunner, prompt: str) -> Dict[str, Any]:
     """Run the security audit with Claude Code.
     
     Args:
